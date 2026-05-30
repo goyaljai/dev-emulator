@@ -110,7 +110,11 @@ async function installSdk() {
   process.stderr.write(`[dev-emulator] Installing Android SDK to ${sdkRoot}...\n`);
 
   const zipPath = join(TMP, 'cmdline-tools.zip');
-  await downloadFile(url, zipPath, 'Downloading Android SDK tools');
+  if (existsSync(zipPath)) {
+    process.stderr.write('[dev-emulator] Using cached command-line tools zip...\n');
+  } else {
+    await downloadFile(url, zipPath, 'Downloading Android SDK tools');
+  }
 
   const extractDir = join(sdkRoot, 'cmdline-tools');
   mkdirSync(extractDir, { recursive: true });
