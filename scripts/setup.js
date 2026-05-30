@@ -50,12 +50,18 @@ function installForCodex() {
 
 function installForGemini() {
   // Gemini CLI (agy) uses ~/.gemini/config/plugins/<plugin>/skills/<skill>/SKILL.md
+  // A plugin.json in the plugin root is required — without it Gemini ignores the folder.
   if (!existsSync(skillSrc)) return false;
-  const dest = join(HOME, '.gemini', 'config', 'plugins', 'android', 'skills', 'android-agent', 'SKILL.md');
+  const pluginDir = join(HOME, '.gemini', 'config', 'plugins', 'android');
+  const dest = join(pluginDir, 'skills', 'android-agent', 'SKILL.md');
   mkdirSync(dirname(dest), { recursive: true });
   const existing = existsSync(dest) ? readFileSync(dest, 'utf8') : '';
   const incoming = readFileSync(skillSrc, 'utf8');
   if (existing !== incoming) copyFileSync(skillSrc, dest);
+  const pluginJson = join(pluginDir, 'plugin.json');
+  if (!existsSync(pluginJson)) {
+    writeFileSync(pluginJson, JSON.stringify({ name: 'android', description: 'Android automation and testing plugin', version: '1.0.0' }, null, 2) + '\n', 'utf8');
+  }
   return existing === incoming ? 'uptodate' : 'installed';
 }
 

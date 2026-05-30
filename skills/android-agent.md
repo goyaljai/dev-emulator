@@ -1,6 +1,6 @@
 ---
 name: android-agent
-description: Android app automation via ADB and dev-emulator. Use when asked to: install/launch/test Android apps, tap UI elements, capture screenshots, check logcat, verify notifications, interact with emulator or device, or automate any Android testing workflow. Trigger phrases: "install and test", "tap [element]", "launch the app", "check the emulator", "screenshot the app", "verify on device", "adb", "test on Android", "check notification", "logcat".
+description: "Android app automation via ADB and dev-emulator. Use when asked to: install/launch/test Android apps, tap UI elements, capture screenshots, check logcat, verify notifications, interact with emulator or device, or automate any Android testing workflow. Trigger phrases: \"install and test\", \"tap [element]\", \"launch the app\", \"check the emulator\", \"screenshot the app\", \"verify on device\", \"adb\", \"test on Android\", \"check notification\", \"logcat\"."
 allowed-tools: Bash, Read
 ---
 
