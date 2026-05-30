@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Called daily by cron when Claude was not installed at npm install time.
-// Once Claude is detected, installs the skill and removes the cron entry.
+// Once Claude binary is detected, installs the skill and removes itself from crontab.
 import { existsSync, mkdirSync, copyFileSync, readFileSync } from 'fs';
 import { execSync } from 'child_process';
 import { homedir } from 'os';
@@ -8,14 +8,18 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const HOME      = join(homedir());
-const claudeDir = join(HOME, '.claude');
+const HOME      = homedir();
 const skillSrc  = join(__dirname, '..', 'skills', 'android-agent.md');
-const skillDir  = join(claudeDir, 'skills', 'android-agent');
+const skillDir  = join(HOME, '.claude', 'skills', 'android-agent');
 const skillDest = join(skillDir, 'skill.md');
 const CRON_LABEL = '# dev-emulator skill watcher';
 
-if (!existsSync(claudeDir)) process.exit(0); // Claude still not installed, check again tomorrow
+// Check for claude binary, not ~/.claude directory
+function claudeInstalled() {
+  try { execSync('which claude', { stdio: 'pipe' }); return true; } catch { return false; }
+}
+
+if (!claudeInstalled()) process.exit(0); // not yet, check again tomorrow
 
 // Claude is now installed — copy skill
 try {
@@ -30,12 +34,7 @@ try {
 // Remove ourselves from crontab
 try {
   const tab = execSync('crontab -l 2>/dev/null', { encoding: 'utf8' });
-  const filtered = tab.split('\n')
-    .filter(l => !l.includes(CRON_LABEL) && l.trim() !== '')
-    .join('\n');
-  if (filtered.trim()) {
-    execSync(`echo "${filtered}" | crontab -`);
-  } else {
-    execSync('crontab -r 2>/dev/null || true');
-  }
+  const filtered = tab.split('\n').filter(l => !l.includes(CRON_LABEL) && l.trim()).join('\n');
+  if (filtered.trim()) { execSync(`echo ${JSON.stringify(filtered + '\n')} | crontab -`); }
+  else { execSync('crontab -r 2>/dev/null || true'); }
 } catch { /* non-fatal */ }
