@@ -4,7 +4,7 @@
 
 `dev-emulator` gives AI agents and developers a simple scripting interface to a real Android emulator. Install an APK, tap the screen, find UI elements, take screenshots, read logs — all from a heredoc. The Android SDK, emulator, and virtual device are bootstrapped automatically on first use.
 
-Works on macOS and Linux.
+Works on macOS and Linux. Supports Apple Silicon (arm64) and Intel/AMD (x86_64).
 
 ---
 
@@ -19,13 +19,14 @@ npm install -g dev-emulator
 - **Codex CLI** → `~/.codex/skills/android-agent/SKILL.md`
 - **Gemini CLI** → `~/.gemini/config/plugins/android/skills/android-agent/SKILL.md`
 
-If no AI tool is installed yet, a lightweight daily background check is scheduled — it installs the skill automatically once a tool appears, then removes itself.
+If no AI tool is installed yet, a lightweight daily check is scheduled — it installs the skill automatically once a tool appears, then removes itself. The skill is also re-synced on every `dev-emulator` run, so reinstalling Claude/Codex/Gemini never leaves you without it.
 
 **On first run**, if the Android SDK is not found, dev-emulator:
-1. Downloads Android command-line tools
-2. Installs `platform-tools` (adb, ~10 MB) and checks if a device is already connected
-3. If a device is found — starts immediately, skips the large system image download
-4. If no device — installs the full emulator + Android 14 system image (~1.5 GB)
+1. Runs preflight checks (Node 18+, `unzip` available, Java present)
+2. Downloads Android command-line tools
+3. Installs `platform-tools` (adb, ~10 MB) and checks if a device is already connected
+4. If a device is found — starts immediately, skips the large image download
+5. If no device — scans existing system images and picks the best one for your machine, or installs a fresh one
 
 Every subsequent run is instant.
 
