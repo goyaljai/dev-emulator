@@ -162,6 +162,61 @@ console.log(JSON.stringify({ screenshot: shot }));
 EOF
 ```
 
+### Login to an app, then automate
+
+The typical flow: install the APK, launch it, screenshot the login screen, fill in credentials, tap Sign In, verify you're in, then do the actual task.
+
+When used with **Claude Code**, Claude takes each screenshot, reads what's on screen, and figures out where to tap — you just describe the goal.
+
+```bash
+dev-emulator <<'EOF'
+const d = await device.get();
+
+// Install if not already present
+const installed = await d.isInstalled("com.example.app");
+if (!installed) await d.install("/path/to/app.apk");
+
+// Launch and wait for login screen
+await d.launch("com.example.app", ".MainActivity");
+await d.sleep(5000);
+
+// Screenshot the login screen — Claude reads this to find field positions
+const loginShot = await d.screenshot("login_screen.png");
+console.log(JSON.stringify({ step: "login_screen", screenshot: loginShot }));
+
+// Tap the email field (coordinates from screenshot), type email
+await d.tap(540, 800);
+await d.sleep(500);
+await d.type("user@example.com");
+
+// Tap the password field, type password
+await d.tap(540, 1000);
+await d.sleep(500);
+await d.type("yourpassword");
+
+// Tap Sign In button
+await d.tap(540, 1200);
+await d.sleep(5000); // wait for home screen to load
+
+// Verify login succeeded
+const homeShot = await d.screenshot("home_after_login.png");
+console.log(JSON.stringify({ step: "home", screenshot: homeShot }));
+
+// Now do the actual task — e.g. navigate deeper
+await d.tap(540, 600);
+await d.sleep(3000);
+
+const taskShot = await d.screenshot("task_done.png");
+console.log(JSON.stringify({ step: "task", screenshot: taskShot }));
+EOF
+```
+
+> **Tip for Claude Code users:** You don't need to hardcode tap coordinates. Just tell Claude what you want:
+>
+> *"Log into the app at ~/app.apk with email user@example.com and password mypass, then navigate to Settings and take a screenshot."*
+>
+> Claude will screenshot each step, read what's on screen, calculate the correct coordinates, and proceed — handling login flows, popups, and navigation automatically.
+
 ---
 
 ## How it works
