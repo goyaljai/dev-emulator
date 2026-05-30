@@ -57,16 +57,42 @@ function getToolPaths(sdkRoot) {
   };
 }
 
-async function downloadFile(url, dest) {
+async function downloadFile(url, dest, label = '') {
   return new Promise((resolve, reject) => {
     const file = createWriteStream(dest);
     https.get(url, res => {
       if (res.statusCode === 301 || res.statusCode === 302) {
         file.close();
-        return downloadFile(res.headers.location, dest).then(resolve).catch(reject);
+        return downloadFile(res.headers.location, dest, label).then(resolve).catch(reject);
       }
+
+      const total = parseInt(res.headers['content-length'] || '0', 10);
+      let received = 0;
+      let lastPct = -1;
+
+      res.on('data', chunk => {
+        received += chunk.length;
+        if (total) {
+          const pct = Math.floor((received / total) * 100);
+          if (pct !== lastPct && pct % 5 === 0) {
+            lastPct = pct;
+            const mb    = (received / 1024 / 1024).toFixed(1);
+            const total_mb = (total / 1024 / 1024).toFixed(1);
+            const bar   = '█'.repeat(pct / 5) + '░'.repeat(20 - pct / 5);
+            process.stderr.write(`\r[dev-emulator] ${label} [${bar}] ${pct}% (${mb}/${total_mb} MB)  `);
+          }
+        } else {
+          // No content-length header — just show MB received
+          const mb = (received / 1024 / 1024).toFixed(1);
+          process.stderr.write(`\r[dev-emulator] ${label} ${mb} MB downloaded...  `);
+        }
+      });
+
       res.pipe(file);
-      file.on('finish', () => file.close(resolve));
+      file.on('finish', () => {
+        process.stderr.write('\n');
+        file.close(resolve);
+      });
     }).on('error', reject);
   });
 }
@@ -84,8 +110,7 @@ async function installSdk() {
   process.stderr.write(`[dev-emulator] Installing Android SDK to ${sdkRoot}...\n`);
 
   const zipPath = join(TMP, 'cmdline-tools.zip');
-  process.stderr.write('[dev-emulator] Downloading command-line tools...\n');
-  await downloadFile(url, zipPath);
+  await downloadFile(url, zipPath, 'Downloading Android SDK tools');
 
   const extractDir = join(sdkRoot, 'cmdline-tools');
   mkdirSync(extractDir, { recursive: true });
