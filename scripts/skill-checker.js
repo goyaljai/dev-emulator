@@ -13,7 +13,8 @@ const skillSrc  = join(__dirname, '..', 'skills', 'android-agent.md');
 const CRON_LABEL = '# dev-emulator skill watcher';
 
 function isBinaryInstalled(name) {
-  try { execSync(`which ${name}`, { stdio: 'pipe' }); return true; } catch { return false; }
+  const dirs = (process.env.PATH || '').split(':');
+  return dirs.some(dir => existsSync(join(dir, name)));
 }
 
 function installForClaude() {

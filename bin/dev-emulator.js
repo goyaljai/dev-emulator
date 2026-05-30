@@ -44,12 +44,14 @@ mkdirSync(TMP, { recursive: true });
       if (incoming !== existing) { mkdirSync(dirname(destPath), { recursive: true }); copyFileSync(skillSrc, destPath); }
     }
 
+    // Resolve binary by walking PATH — no subprocess, no dependency on `which`
+    const inPath = name => (process.env.PATH || '').split(':').some(d => existsSync(join(d, name)));
+
     // Claude Code
-    try { execFileSync('which', ['claude'], { stdio: 'pipe' }); sync(join(HOME, '.claude', 'skills', 'android-agent', 'skill.md')); } catch { /* not installed */ }
+    if (inPath('claude')) sync(join(HOME, '.claude', 'skills', 'android-agent', 'skill.md'));
 
     // Codex CLI
-    try {
-      execFileSync('which', ['codex'], { stdio: 'pipe' });
+    if (inPath('codex')) {
       sync(join(HOME, '.codex', 'skills', 'android-agent', 'SKILL.md'));
       const cfg = join(HOME, '.codex', 'config.toml');
       if (existsSync(cfg)) {
@@ -59,13 +61,10 @@ mkdirSync(TMP, { recursive: true });
           writeFileSync(cfg, c, 'utf8');
         }
       }
-    } catch { /* not installed */ }
+    }
 
     // Gemini CLI (agy)
-    try {
-      execFileSync('which', ['agy'], { stdio: 'pipe' });
-      sync(join(HOME, '.gemini', 'config', 'plugins', 'android', 'skills', 'android-agent', 'SKILL.md'));
-    } catch { /* not installed */ }
+    if (inPath('agy')) sync(join(HOME, '.gemini', 'config', 'plugins', 'android', 'skills', 'android-agent', 'SKILL.md'));
   } catch { /* non-fatal */ }
 })();
 

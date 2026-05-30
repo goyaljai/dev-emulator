@@ -10,8 +10,10 @@ const HOME = homedir();
 const skillSrc = join(__dirname, '..', 'skills', 'android-agent.md');
 
 // ── Tool detection ─────────────────────────────────────────────────────────────
+// Search PATH directories directly in Node — avoids depending on `which` being available
 function isBinaryInstalled(name) {
-  try { execSync(`which ${name}`, { stdio: 'pipe' }); return true; } catch { return false; }
+  const dirs = (process.env.PATH || '').split(':');
+  return dirs.some(dir => existsSync(join(dir, name)));
 }
 
 // ── Skill installers ──────────────────────────────────────────────────────────
