@@ -295,12 +295,12 @@ class Device {
   }
 
   /**
-   * Pull down the notification shade. Uses a long swipe from just below the
-   * status bar (y=50) to near the bottom (y=1500) to reliably open the shade
-   * on tall screens (2400px). A short swipe can fail to expand it fully.
+   * Pull down the notification shade.
+   * Uses size() to calculate the correct swipe distance for any screen height.
    */
   async openNotifications() {
-    await this.swipe(540, 50, 540, 1500, 400);
+    const { w, h } = await this.size();
+    await this.swipe(Math.floor(w / 2), 50, Math.floor(w / 2), Math.floor(h * 0.65), 400);
     return { shade: 'open' };
   }
 
@@ -333,11 +333,78 @@ class Device {
   }
 
   /**
-   * Dump recent logcat lines (last 200). Pass a filter string to grep by tag or text.
-   * Example: d.logcat("MyApp") returns only lines containing "MyApp".
+   * Dump the current UI hierarchy via UIAutomator.
+   * Returns an array of elements: { text, contentDesc, bounds: { x1,y1,x2,y2,cx,cy } }
+   * Useful for finding elements by label without knowing their coordinates.
    */
-  async logcat(filter = '') {
-    const raw = adbSilent(this._adb, '-s', this._s, 'logcat', '-d', '-t', '200');
+  async getUI() {
+    const remote = '/sdcard/_dev_emulator_ui.xml';
+    const local  = join(TMP, `ui_${Date.now()}.xml`);
+    adbSilent(this._adb, '-s', this._s, 'shell', 'uiautomator', 'dump', remote);
+    adb(this._adb, '-s', this._s, 'pull', remote, local);
+    const xml = readFileSync(local, 'utf8');
+    const elements = [];
+    const nodeRe = /<node[^>]*>/g;
+    let match;
+    while ((match = nodeRe.exec(xml)) !== null) {
+      const node   = match[0];
+      const text   = (node.match(/text="([^"]*)"/)       || [])[1] || '';
+      const desc   = (node.match(/content-desc="([^"]*)"/) || [])[1] || '';
+      const bounds = node.match(/bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/);
+      if (bounds) {
+        const x1 = parseInt(bounds[1]), y1 = parseInt(bounds[2]);
+        const x2 = parseInt(bounds[3]), y2 = parseInt(bounds[4]);
+        elements.push({ text, contentDesc: desc, bounds: { x1, y1, x2, y2, cx: Math.floor((x1+x2)/2), cy: Math.floor((y1+y2)/2) } });
+      }
+    }
+    return elements;
+  }
+
+  /**
+   * Find an element by visible text or content-desc and tap its center.
+   * Throws if no matching element is found.
+   * Example: await d.findAndTap("Sign In")
+   */
+  async findAndTap(text) {
+    const els = await this.getUI();
+    const target = els.find(e =>
+      e.text.toLowerCase() === text.toLowerCase() ||
+      e.contentDesc.toLowerCase() === text.toLowerCase()
+    );
+    if (!target) throw new Error(`findAndTap: no element found with text/desc "${text}"`);
+    await this.tap(target.bounds.cx, target.bounds.cy);
+    return { tapped: text, at: [target.bounds.cx, target.bounds.cy] };
+  }
+
+  /**
+   * Poll the UI until an element with the given text/desc appears, then return it.
+   * Throws if the element is not found within the timeout.
+   * Options: { timeout: 10000, interval: 1000 }
+   */
+  async waitForElement(text, opts = {}) {
+    const timeout  = opts.timeout  || 10000;
+    const interval = opts.interval || 1000;
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      const els = await this.getUI();
+      const found = els.find(e =>
+        e.text.toLowerCase() === text.toLowerCase() ||
+        e.contentDesc.toLowerCase() === text.toLowerCase()
+      );
+      if (found) return found;
+      await sleep(interval);
+    }
+    throw new Error(`waitForElement: "${text}" not found after ${timeout}ms`);
+  }
+
+  /**
+   * Dump recent logcat lines. Pass a filter to grep by tag or text.
+   * Options: lines (default 200) — how many recent lines to return.
+   * Example: d.logcat("MyApp", { lines: 500 })
+   */
+  async logcat(filter = '', opts = {}) {
+    const lines = String(opts.lines || 200);
+    const raw = adbSilent(this._adb, '-s', this._s, 'logcat', '-d', '-t', lines);
     if (!filter) return raw;
     return raw.split('\n').filter(l => l.toLowerCase().includes(filter.toLowerCase())).join('\n');
   }
@@ -346,6 +413,17 @@ class Device {
   async clearLogcat() {
     adbSilent(this._adb, '-s', this._s, 'logcat', '-c');
     return { cleared: true };
+  }
+
+  /**
+   * Check if the app has crashed. Scans AndroidRuntime:E logcat for the package name.
+   * Returns { crashed: true, error: "..." } or { crashed: false }.
+   */
+  async isCrashed(pkg) {
+    const raw = adbSilent(this._adb, '-s', this._s, 'logcat', '-d', '-s', 'AndroidRuntime:E');
+    const lines = raw.split('\n').filter(l => l.includes(pkg));
+    if (lines.length > 0) return { crashed: true, error: lines.join('\n') };
+    return { crashed: false };
   }
 
   /** Dump all active notifications (raw dumpsys output). */
@@ -457,11 +535,15 @@ if (!script.trim()) {
     '  d.screenshot(name?)        capture PNG → returns local path',
     '  d.size()                   screen dimensions { w, h }',
     '  d.shell(...args)           adb shell command',
-    '  d.logcat(filter?)          recent logcat lines',
+    '  d.logcat(filter?, {lines?}) recent logcat lines (default 200)',
     '  d.clearLogcat()            clear logcat buffer',
+    '  d.getUI()                  dump UI hierarchy → [{text, contentDesc, bounds}]',
+    '  d.findAndTap(text)         find element by text/desc and tap it',
+    '  d.waitForElement(text, {timeout?, interval?})  poll until element appears',
+    '  d.isCrashed(pkg)           check for app crash → { crashed, error? }',
     '  d.home() | d.back()        home / back key',
     '  d.wake()                   wake screen',
-    '  d.openNotifications()      pull down notification shade',
+    '  d.openNotifications()      pull down notification shade (adapts to screen height)',
     '  d.isInstalled(pkg)         check if package is installed',
     '  d.notifications()          dump active notifications',
     '  d.sleep(ms)                wait milliseconds',
