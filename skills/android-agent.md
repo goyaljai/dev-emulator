@@ -51,7 +51,35 @@ EOF
 
 Screenshots are saved to `$TMPDIR/dev-emulator/` — read them with the Read tool for visual verification.
 
-If an emulator or device is already running when `device.get()` is called, dev-emulator uses it immediately without booting a new one.
+If an emulator or device is already running when `device.get()` is called, dev-emulator uses it immediately — no SDK check, no AVD, instant start. If the SDK is missing entirely, it installs `platform-tools` (adb, ~10MB) first, checks for a connected device again, and only downloads the full system image (~1.5GB) if no device is found.
+
+### Full dev-emulator API
+
+```js
+d.install(apkPath)                       // install APK
+d.launch(pkg, activity)                  // start activity
+d.stop(pkg)                              // force-stop app
+d.tap(x, y)                              // tap at device pixels
+d.swipe(x1, y1, x2, y2, ms?)            // swipe gesture
+d.key(code)                              // keyevent e.g. "KEYCODE_BACK"
+d.type(text)                             // type text
+d.screenshot(name?)                      // capture PNG → local path
+d.size()                                 // { w, h } in device pixels
+d.shell(...args)                         // adb shell command
+d.logcat(filter?, {lines?})              // recent logcat (default 200 lines)
+d.clearLogcat()                          // clear logcat buffer
+d.getUI()                                // UIAutomator dump → [{text,contentDesc,bounds}]
+d.findAndTap(text)                       // find by text/desc → tap center (native apps only)
+d.waitForElement(text, {timeout?,interval?})  // poll until element found (native apps only)
+d.isCrashed(pkg)                         // { crashed, error? } — checks AndroidRuntime:E
+d.notifications()                        // raw dumpsys notification output
+d.isInstalled(pkg)                       // true/false
+d.home() | d.back() | d.wake()          // nav keys
+d.openNotifications()                    // pull shade (uses size() for correct swipe distance)
+d.sleep(ms)                              // wait
+```
+
+**⚠️ `getUI`, `findAndTap`, `waitForElement` work on NATIVE apps only.** UIAutomator cannot read text inside a WebView — it only sees the container. For WebView apps, use `screenshot()` + visual inspection to find coordinates, then `tap(x, y)`.
 
 ## Key Commands
 
@@ -119,13 +147,15 @@ adb shell screencap -p /sdcard/shade.png && adb pull /sdcard/shade.png /tmp/shad
 ## Common Gotchas
 
 - **Tap coordinates are wrong**: Images in Claude are often scaled down 2-4x. The image metadata says "Multiply coordinates by X.XX" — always apply that multiplier. Use `adb shell wm size` to confirm device resolution.
-- **Notification shade doesn't open**: `swipe 540 0 540 800` is too short on 2400px screens. Use `swipe 540 50 540 1500 400`.
+- **Notification shade doesn't open**: `openNotifications()` uses `size()` internally and calculates the correct swipe. Raw `swipe 540 0 540 800` is too short on 2400px screens.
 - **WebView taps miss**: Content starts below the status bar (~100px on 2400px screen). Adjust Y coordinates accordingly.
 - **WebView loads slowly**: Always sleep 6-8s after launching a WebView app. SPA frameworks (React/Next.js) need extra time to hydrate.
+- **`getUI()` / `findAndTap()` / `waitForElement()` don't work inside WebViews**: Android UIAutomator cannot read DOM content inside a WebView — it only sees the WebView container, not its HTML content. These methods work on native apps only. For WebView apps, use `screenshot()` + visual inspection to determine coordinates, then `tap(x, y)` directly.
 - **JS bridge not firing**: Inject bridge JS 3s after `onPageFinished` — SPAs replace the DOM after the initial load event. Verify with `adb logcat -d | grep "typeof AndroidBridge"`.
 - **Notification not showing**: Check `adb shell dumpsys notification`. Media notifications require `MediaSession` active AND `NotificationChannel` created.
 - **Spurious pause events**: WebView audio fires `pause` on init. Guard: ignore pause events within 2s of `onPageFinished`.
 - **`am start` reuses existing task**: Always `am force-stop` before `am start` for a clean relaunch.
+- **`device.get()` crashes if SDK missing but emulator running**: Fixed in 1.1.2+ — `device.get()` now checks for a running ADB device first, skipping all SDK/AVD setup if one is already connected.
 
 ## Android 13+ Media Notification — Play/Pause Button Fix
 

@@ -173,10 +173,28 @@ async function installSdk() {
   const sdkman = join(latestDir, 'bin', 'sdkmanager');
   chmodSync(sdkman, 0o755);
 
-  process.stderr.write('[dev-emulator] Installing platform-tools, emulator, system image...\n');
   const env = { ...process.env, ANDROID_HOME: sdkRoot, ANDROID_SDK_ROOT: sdkRoot };
+
+  // Install platform-tools (adb) first — small ~10MB download.
+  // After adb is available, check if a device is already connected.
+  // If one is found, skip the large emulator + system image download entirely.
+  process.stderr.write('[dev-emulator] Installing platform-tools (adb)...\n');
   execSync(
-    `yes | "${sdkman}" --sdk_root="${sdkRoot}" "platform-tools" "emulator" "${AVD_SYSTEM_IMAGE}"`,
+    `yes | "${sdkman}" --sdk_root="${sdkRoot}" "platform-tools"`,
+    { env, stdio: ['pipe', 'pipe', 'pipe'] }
+  );
+
+  const { adb: ADB } = getToolPaths(sdkRoot);
+  const earlyDevice = connectedDevice(ADB);
+  if (earlyDevice) {
+    process.stderr.write(`[dev-emulator] Found connected device ${earlyDevice} — skipping emulator install.\n`);
+    return sdkRoot;
+  }
+
+  // No device connected — need the full emulator + system image
+  process.stderr.write('[dev-emulator] Installing emulator and system image...\n');
+  execSync(
+    `yes | "${sdkman}" --sdk_root="${sdkRoot}" "emulator" "${AVD_SYSTEM_IMAGE}"`,
     { env, stdio: ['pipe', 'pipe', 'pipe'] }
   );
 
@@ -460,6 +478,26 @@ const device = {
   async get(name = 'default') {
     if (_devices[name]) return _devices[name];
 
+    // ── Fast path: ADB already knows about a device ──────────────────────────
+    // Check for a running device BEFORE touching the SDK or AVD manager.
+    // This lets dev-emulator work against any already-connected device or
+    // emulator even when cmdline-tools / avdmanager are not installed.
+    // Wrapped in try/catch: if adb is missing entirely, fall through to SDK install.
+    try {
+      const quickAdb = (() => {
+        const r = getSdkRoot();
+        return r ? getToolPaths(r).adb : 'adb'; // fall back to system adb if sdk missing
+      })();
+      const serial = connectedDevice(quickAdb);
+      if (serial) {
+        process.stderr.write(`[dev-emulator] using existing device ${serial}\n`);
+        const d = new Device(serial, quickAdb);
+        _devices[name] = d;
+        return d;
+      }
+    } catch { /* adb not available yet — fall through to SDK install */ }
+
+    // ── Slow path: no device connected — need SDK + AVD + emulator boot ──────
     let sdkRoot = getSdkRoot();
     if (!sdkRoot) sdkRoot = await installSdk();
 
@@ -468,27 +506,21 @@ const device = {
 
     await ensureAvd(sdkRoot);
 
-    let serial = connectedDevice(ADB);
+    process.stderr.write(`[dev-emulator] starting ${AVD_NAME} headlessly...\n`);
+    spawn(EMU, ['-avd', AVD_NAME, '-no-window', '-no-audio', '-gpu', 'swiftshader_indirect'], {
+      detached: true, stdio: 'ignore', env,
+    }).unref();
 
-    if (!serial) {
-      process.stderr.write(`[dev-emulator] starting ${AVD_NAME} headlessly...\n`);
-      spawn(EMU, ['-avd', AVD_NAME, '-no-window', '-no-audio', '-gpu', 'swiftshader_indirect'], {
-        detached: true, stdio: 'ignore', env,
-      }).unref();
-
-      // Poll for up to 60s for the emulator to appear in `adb devices`.
-      // After it appears, waitForBoot polls for another 180s until the
-      // Android system reports sys.boot_completed=1.
-      const deadline = Date.now() + 60000;
-      while (!serial && Date.now() < deadline) {
-        await sleep(2000);
-        serial = connectedDevice(ADB);
-      }
-      if (!serial) throw new Error('Emulator did not appear in `adb devices` within 60s');
-      await waitForBoot(ADB, serial);
-    } else {
-      process.stderr.write(`[dev-emulator] using existing device ${serial}\n`);
+    // Poll for up to 60s for the emulator to appear in `adb devices`.
+    // After it appears, waitForBoot polls for another 180s until the
+    // Android system reports sys.boot_completed=1.
+    const deadline = Date.now() + 60000;
+    while (!serial && Date.now() < deadline) {
+      await sleep(2000);
+      serial = connectedDevice(ADB);
     }
+    if (!serial) throw new Error('Emulator did not appear in `adb devices` within 60s');
+    await waitForBoot(ADB, serial);
 
     const d = new Device(serial, ADB);
     _devices[name] = d;
