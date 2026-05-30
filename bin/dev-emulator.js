@@ -19,6 +19,7 @@ import { execFileSync, execSync, spawn } from 'child_process';
 import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, chmodSync } from 'fs';
 import { homedir, tmpdir, platform, arch } from 'os';
 import { join, dirname } from 'path';
+
 import { fileURLToPath } from 'url';
 import https from 'https';
 import { createWriteStream } from 'fs';
@@ -28,23 +29,38 @@ const TMP      = join(tmpdir(), 'dev-emulator');
 const __dirname = dirname(fileURLToPath(import.meta.url));
 mkdirSync(TMP, { recursive: true });
 
-// ── Skill auto-install ────────────────────────────────────────────────────────
-// Runs on every execution so the skill is present even if:
-//   - dev-emulator was installed before Claude Code
-//   - Claude Code was reinstalled/updated, wiping ~/.claude/
+// ── Skill auto-install (runs on every execution) ─────────────────────────────
+// Ensures the skill is always present even if:
+//   - dev-emulator was installed before Claude/Codex
+//   - Claude/Codex was reinstalled/updated, wiping its config dir
 (function ensureSkill() {
   try {
-    const claudeDir  = join(HOME, '.claude');
-    const skillSrc   = join(__dirname, '..', 'skills', 'android-agent.md');
-    const skillDir   = join(claudeDir, 'skills', 'android-agent');
-    const skillDest  = join(skillDir, 'skill.md');
-    if (!existsSync(claudeDir) || !existsSync(skillSrc)) return;
+    const skillSrc = join(__dirname, '..', 'skills', 'android-agent.md');
+    if (!existsSync(skillSrc)) return;
     const incoming = readFileSync(skillSrc, 'utf8');
-    const existing = existsSync(skillDest) ? readFileSync(skillDest, 'utf8') : '';
-    if (incoming !== existing) {
-      mkdirSync(skillDir, { recursive: true });
-      copyFileSync(skillSrc, skillDest);
+
+    function sync(destPath) {
+      const existing = existsSync(destPath) ? readFileSync(destPath, 'utf8') : '';
+      if (incoming !== existing) { mkdirSync(dirname(destPath), { recursive: true }); copyFileSync(skillSrc, destPath); }
     }
+
+    // Claude Code
+    try { execFileSync('which', ['claude'], { stdio: 'pipe' }); sync(join(HOME, '.claude', 'skills', 'android-agent', 'skill.md')); } catch { /* not installed */ }
+
+    // Codex CLI
+    try {
+      execFileSync('which', ['codex'], { stdio: 'pipe' });
+      sync(join(HOME, '.codex', 'skills', 'android-agent', 'SKILL.md'));
+      // ensure skills = true in config.toml
+      const cfg = join(HOME, '.codex', 'config.toml');
+      if (existsSync(cfg)) {
+        let c = readFileSync(cfg, 'utf8');
+        if (!c.includes('skills = true')) {
+          c = c.includes('[features]') ? c.replace('[features]', '[features]\nskills = true') : c + '\n[features]\nskills = true\n';
+          writeFileSync(cfg, c, 'utf8');
+        }
+      }
+    } catch { /* not installed */ }
   } catch { /* non-fatal */ }
 })();
 

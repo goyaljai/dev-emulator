@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Called daily by cron when Claude was not installed at npm install time.
-// Once Claude binary is detected, installs the skill and removes itself from crontab.
-import { existsSync, mkdirSync, copyFileSync, readFileSync } from 'fs';
+// Called daily by cron when no AI tool was installed at npm install time.
+// Checks for claude/codex, installs skill into each, then removes itself from crontab.
+import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync } from 'fs';
 import { execSync } from 'child_process';
 import { homedir } from 'os';
 import { join, dirname } from 'path';
@@ -10,26 +10,45 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const HOME      = homedir();
 const skillSrc  = join(__dirname, '..', 'skills', 'android-agent.md');
-const skillDir  = join(HOME, '.claude', 'skills', 'android-agent');
-const skillDest = join(skillDir, 'skill.md');
 const CRON_LABEL = '# dev-emulator skill watcher';
 
-// Check for claude binary, not ~/.claude directory
-function claudeInstalled() {
-  try { execSync('which claude', { stdio: 'pipe' }); return true; } catch { return false; }
+function isBinaryInstalled(name) {
+  try { execSync(`which ${name}`, { stdio: 'pipe' }); return true; } catch { return false; }
 }
 
-if (!claudeInstalled()) process.exit(0); // not yet, check again tomorrow
+function installForClaude() {
+  if (!existsSync(skillSrc)) return;
+  const dest = join(HOME, '.claude', 'skills', 'android-agent', 'skill.md');
+  mkdirSync(dirname(dest), { recursive: true });
+  const existing = existsSync(dest) ? readFileSync(dest, 'utf8') : '';
+  if (existing !== readFileSync(skillSrc, 'utf8')) copyFileSync(skillSrc, dest);
+}
 
-// Claude is now installed — copy skill
-try {
-  if (existsSync(skillSrc)) {
-    mkdirSync(skillDir, { recursive: true });
-    const existing = existsSync(skillDest) ? readFileSync(skillDest, 'utf8') : '';
-    const incoming = readFileSync(skillSrc, 'utf8');
-    if (existing !== incoming) copyFileSync(skillSrc, skillDest);
+function installForCodex() {
+  if (!existsSync(skillSrc)) return;
+  const dest = join(HOME, '.codex', 'skills', 'android-agent', 'SKILL.md');
+  mkdirSync(dirname(dest), { recursive: true });
+  const existing = existsSync(dest) ? readFileSync(dest, 'utf8') : '';
+  if (existing !== readFileSync(skillSrc, 'utf8')) copyFileSync(skillSrc, dest);
+  const cfg = join(HOME, '.codex', 'config.toml');
+  if (existsSync(cfg)) {
+    let content = readFileSync(cfg, 'utf8');
+    if (!content.includes('skills = true')) {
+      content = content.includes('[features]')
+        ? content.replace('[features]', '[features]\nskills = true')
+        : content + '\n[features]\nskills = true\n';
+      writeFileSync(cfg, content, 'utf8');
+    }
   }
-} catch { /* non-fatal */ }
+}
+
+const claudeFound = isBinaryInstalled('claude');
+const codexFound  = isBinaryInstalled('codex');
+
+if (!claudeFound && !codexFound) process.exit(0); // still nothing, check again tomorrow
+
+try { if (claudeFound) installForClaude(); } catch { /* non-fatal */ }
+try { if (codexFound)  installForCodex(); } catch { /* non-fatal */ }
 
 // Remove ourselves from crontab
 try {

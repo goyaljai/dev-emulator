@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, copyFileSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync } from 'fs';
 import { execSync } from 'child_process';
 import { homedir } from 'os';
 import { join, dirname } from 'path';
@@ -7,26 +7,47 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const HOME = homedir();
+const skillSrc = join(__dirname, '..', 'skills', 'android-agent.md');
 
-const skillSrc  = join(__dirname, '..', 'skills', 'android-agent.md');
-const skillDir  = join(HOME, '.claude', 'skills', 'android-agent');
-const skillDest = join(skillDir, 'skill.md');
-
-// Detect Claude Code by looking for the `claude` binary — NOT by checking ~/.claude
-// because mkdirSync would create that directory, making the check meaningless.
-function claudeInstalled() {
-  try { execSync('which claude', { stdio: 'pipe' }); return true; } catch { return false; }
+// ── Tool detection ─────────────────────────────────────────────────────────────
+function isBinaryInstalled(name) {
+  try { execSync(`which ${name}`, { stdio: 'pipe' }); return true; } catch { return false; }
 }
 
-function installSkill() {
+// ── Skill installers ──────────────────────────────────────────────────────────
+function installForClaude() {
   if (!existsSync(skillSrc)) return false;
-  mkdirSync(skillDir, { recursive: true });
-  const existing = existsSync(skillDest) ? readFileSync(skillDest, 'utf8') : '';
+  const dest = join(HOME, '.claude', 'skills', 'android-agent', 'skill.md');
+  mkdirSync(dirname(dest), { recursive: true });
+  const existing = existsSync(dest) ? readFileSync(dest, 'utf8') : '';
   const incoming = readFileSync(skillSrc, 'utf8');
-  if (existing !== incoming) { copyFileSync(skillSrc, skillDest); return 'installed'; }
-  return 'uptodate';
+  if (existing === incoming) return 'uptodate';
+  copyFileSync(skillSrc, dest);
+  return 'installed';
 }
 
+function installForCodex() {
+  if (!existsSync(skillSrc)) return false;
+  const dest = join(HOME, '.codex', 'skills', 'android-agent', 'SKILL.md');
+  mkdirSync(dirname(dest), { recursive: true });
+  const existing = existsSync(dest) ? readFileSync(dest, 'utf8') : '';
+  const incoming = readFileSync(skillSrc, 'utf8');
+  if (existing !== incoming) copyFileSync(skillSrc, dest);
+  // Ensure skills = true in ~/.codex/config.toml
+  const cfg = join(HOME, '.codex', 'config.toml');
+  if (existsSync(cfg)) {
+    let content = readFileSync(cfg, 'utf8');
+    if (!content.includes('skills = true')) {
+      content = content.includes('[features]')
+        ? content.replace('[features]', '[features]\nskills = true')
+        : content + '\n[features]\nskills = true\n';
+      writeFileSync(cfg, content, 'utf8');
+    }
+  }
+  return existing === incoming ? 'uptodate' : 'installed';
+}
+
+// ── Cron (self-destructing watcher when no AI tool installed yet) ─────────────
 const CRON_LABEL = '# dev-emulator skill watcher';
 
 function hasCron() {
@@ -53,18 +74,33 @@ function removeCron() {
   } catch { /* non-fatal */ }
 }
 
-if (claudeInstalled()) {
-  const result = installSkill();
-  if (result === 'installed') console.log('✅ android-agent skill installed → ~/.claude/skills/android-agent/skill.md\n');
-  else if (result === 'uptodate') console.log('✅ android-agent skill is already up to date.\n');
+// ── Main ──────────────────────────────────────────────────────────────────────
+const claudeFound = isBinaryInstalled('claude');
+const codexFound  = isBinaryInstalled('codex');
+const anyFound    = claudeFound || codexFound;
+
+if (anyFound) {
   removeCron();
+  if (claudeFound) {
+    const r = installForClaude();
+    if (r === 'installed')  console.log('✅ android-agent skill installed → ~/.claude/skills/android-agent/skill.md');
+    if (r === 'uptodate')   console.log('✅ android-agent skill up to date (Claude)');
+  }
+  if (codexFound) {
+    const r = installForCodex();
+    if (r === 'installed')  console.log('✅ android-agent skill installed → ~/.codex/skills/android-agent/SKILL.md');
+    if (r === 'uptodate')   console.log('✅ android-agent skill up to date (Codex)');
+  }
+  console.log('');
 } else {
-  console.log('ℹ️  Claude Code is not installed yet.');
-  console.log('   Install it at: https://claude.ai/code');
-  console.log('   The android-agent skill will be installed automatically once Claude is detected.\n');
+  console.log('ℹ️  No AI coding tool detected (Claude Code or Codex CLI).');
+  console.log('   Install one to get the android-agent skill automatically:');
+  console.log('   Claude Code → https://claude.ai/code');
+  console.log('   Codex CLI   → https://github.com/openai/codex');
+  console.log('   The skill will be installed the next time dev-emulator runs.\n');
   if (!hasCron()) {
     addCron();
-    console.log('   (A daily check has been scheduled — it self-destructs once Claude is found.)\n');
+    console.log('   (A daily check has been scheduled — it self-destructs once a tool is found.)\n');
   }
 }
 
