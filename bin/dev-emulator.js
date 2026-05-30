@@ -68,6 +68,39 @@ mkdirSync(TMP, { recursive: true });
   } catch { /* non-fatal */ }
 })();
 
+// ── Preflight checks (only runs when SDK install is needed) ──────────────────
+function runPreflight() {
+  const errors = [];
+  const warnings = [];
+
+  // Platform
+  if (platform() === 'win32')
+    errors.push('Windows is not supported. Use macOS or Linux (or WSL2).');
+
+  // Node version
+  const nodeVer = parseInt(process.version.slice(1).split('.')[0]);
+  if (nodeVer < 18)
+    errors.push(`Node ${process.version} is too old. Node 18+ required — install from https://nodejs.org`);
+
+  // unzip (needed to extract SDK zip)
+  const hasUnzip = (process.env.PATH || '').split(':').some(d => existsSync(join(d, 'unzip')));
+  if (!hasUnzip)
+    errors.push('`unzip` is not installed. Install it: macOS → `brew install unzip`, Linux → `apt install unzip`');
+
+  // Java (needed by sdkmanager + avdmanager; warn only — may already be bundled in some envs)
+  const hasJava = (process.env.PATH || '').split(':').some(d => existsSync(join(d, 'java')));
+  if (!hasJava)
+    warnings.push('Java not found. It is required to boot the emulator. Install from https://adoptium.net');
+
+  if (warnings.length) {
+    warnings.forEach(w => process.stderr.write(`[dev-emulator] ⚠️  ${w}\n`));
+  }
+  if (errors.length) {
+    errors.forEach(e => process.stderr.write(`[dev-emulator] ❌ ${e}\n`));
+    throw new Error('Preflight checks failed. Fix the issues above and try again.');
+  }
+}
+
 // ── SDK auto-install ──────────────────────────────────────────────────────────
 
 const SDK_ROOT   = join(HOME, 'Library', 'Android', 'sdk');  // macOS default
@@ -77,10 +110,57 @@ const CMDLINE_URL = {
   'darwin-arm64': `https://dl.google.com/android/repository/commandlinetools-mac-${CMDLINE_VER}_latest.zip`,
   'darwin-x64':   `https://dl.google.com/android/repository/commandlinetools-mac-${CMDLINE_VER}_latest.zip`,
   'linux-x64':    `https://dl.google.com/android/repository/commandlinetools-linux-${CMDLINE_VER}_latest.zip`,
+  'linux-arm64':  `https://dl.google.com/android/repository/commandlinetools-linux-${CMDLINE_VER}_latest.zip`,
 };
-const AVD_NAME         = 'Pixel_7a_dev_emulator';
-const AVD_SYSTEM_IMAGE = 'system-images;android-34;google_apis;x86_64';
-const AVD_DEVICE       = 'pixel_7a';
+const AVD_NAME   = 'Pixel_7a_dev_emulator';
+const AVD_DEVICE = 'pixel_7a';
+
+// Detect the best architecture for this machine
+function getAbi() {
+  const a = arch();
+  return (a === 'arm64' || a === 'aarch64') ? 'arm64-v8a' : 'x86_64';
+}
+
+// Scan installed system images and return all candidates sorted by preference.
+// Sort: plain google_apis first (most avdmanager-compatible), then by API level descending.
+function findAllSystemImages(sdkRoot) {
+  const imagesDir = join(sdkRoot, 'system-images');
+  if (!existsSync(imagesDir)) return [];
+  const abi = getAbi();
+  const candidates = [];
+  try {
+    const apis = execSync(`ls "${imagesDir}"`, { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
+    for (const api of apis) {
+      const apiDir = join(imagesDir, api);
+      try {
+        const tags = execSync(`ls "${apiDir}"`, { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
+        for (const tag of tags) {
+          if (existsSync(join(apiDir, tag, abi))) {
+            const level = parseFloat(api.replace('android-', '')) || 0;
+            const priority = tag === 'google_apis' ? 1 :
+                             tag === 'google_apis_playstore' ? 2 :
+                             tag.startsWith('google_apis') ? 3 : 4;
+            candidates.push({ image: `system-images;${api};${tag};${abi}`, level, priority });
+          }
+        }
+      } catch { /* skip */ }
+    }
+  } catch { return []; }
+  candidates.sort((a, b) => a.priority - b.priority || b.level - a.level);
+  return candidates.map(c => c.image);
+}
+
+// Return the single best system image string, or null if none installed.
+function findBestSystemImage(sdkRoot) {
+  const all = findAllSystemImages(sdkRoot);
+  return all.length ? all[0] : null;
+}
+
+// Build the sdkmanager package string for a fresh install
+function getTargetSystemImage() {
+  const abi = getAbi();
+  return `system-images;android-34;google_apis;${abi}`;
+}
 
 function getSdkRoot() {
   if (existsSync(join(SDK_ROOT, 'platform-tools', 'adb'))) return SDK_ROOT;
@@ -191,9 +271,10 @@ async function installSdk() {
   }
 
   // No device connected — need the full emulator + system image
-  process.stderr.write('[dev-emulator] Installing emulator and system image...\n');
+  const targetImage = getTargetSystemImage();
+  process.stderr.write(`[dev-emulator] Installing emulator and system image (${targetImage})...\n`);
   execSync(
-    `yes | "${sdkman}" --sdk_root="${sdkRoot}" "emulator" "${AVD_SYSTEM_IMAGE}"`,
+    `yes | "${sdkman}" --sdk_root="${sdkRoot}" "emulator" "${targetImage}"`,
     { env, stdio: ['pipe', 'pipe', 'pipe'] }
   );
 
@@ -201,21 +282,100 @@ async function installSdk() {
   return sdkRoot;
 }
 
+// Install cmdline-tools into an existing SDK root that is missing them.
+async function installCmdlineTools(sdkRoot) {
+  const p   = platform();
+  const a   = arch();
+  const key = p === 'darwin' ? `darwin-${a}` : `linux-${a.replace('aarch64', 'arm64')}`;
+  const url = CMDLINE_URL[key];
+  if (!url) throw new Error(`Unsupported platform: ${p}-${a}`);
+
+  process.stderr.write(`[dev-emulator] Installing command-line tools into ${sdkRoot}...\n`);
+  const zipPath = join(TMP, 'cmdline-tools.zip');
+  if (!existsSync(zipPath)) await downloadFile(url, zipPath, 'Downloading command-line tools');
+
+  const extractDir = join(sdkRoot, 'cmdline-tools');
+  mkdirSync(extractDir, { recursive: true });
+  execSync(`unzip -q -o "${zipPath}" -d "${extractDir}"`);
+  const toolsDir  = join(extractDir, 'cmdline-tools');
+  const latestDir = join(extractDir, 'latest');
+  if (existsSync(toolsDir) && !existsSync(latestDir)) execSync(`mv "${toolsDir}" "${latestDir}"`);
+  chmodSync(join(latestDir, 'bin', 'sdkmanager'), 0o755);
+  process.stderr.write('[dev-emulator] Command-line tools installed.\n');
+}
+
 async function ensureAvd(sdkRoot) {
   const { avdman } = getToolPaths(sdkRoot);
   const env = { ...process.env, ANDROID_HOME: sdkRoot, ANDROID_SDK_ROOT: sdkRoot };
 
-  const avdList = execSync(`"${avdman}" list avd`, { env, encoding: 'utf8' });
+  // If avdmanager is missing (cmdline-tools not installed), install them now
+  if (!existsSync(avdman)) {
+    process.stderr.write(`[dev-emulator] avdmanager not found — installing cmdline-tools...\n`);
+    await installCmdlineTools(sdkRoot);
+  }
+
+  // Check if AVD already exists
+  let avdList = '';
+  try { avdList = execSync(`"${avdman}" list avd`, { env, encoding: 'utf8' }); } catch { avdList = ''; }
   if (avdList.includes(AVD_NAME)) {
     process.stderr.write(`[dev-emulator] AVD ${AVD_NAME} already exists\n`);
     return;
   }
 
-  process.stderr.write(`[dev-emulator] Creating AVD ${AVD_NAME}...\n`);
-  execSync(
-    `echo no | "${avdman}" create avd -n "${AVD_NAME}" -k "${AVD_SYSTEM_IMAGE}" -d "${AVD_DEVICE}" --force`,
-    { env, stdio: ['pipe', 'pipe', 'pipe'] }
-  );
+  // Ask avdmanager what system images it actually accepts — this is the ground truth.
+  // Some images (e.g. android-37.0 ps16k) require newer cmdline-tools and are rejected.
+  let validImages = new Set();
+  try {
+    const imgOut = execSync(`"${avdman}" list target`, { env, encoding: 'utf8', stdio: ['pipe','pipe','pipe'] });
+    const matches = imgOut.matchAll(/system-images;[^\s"]+/g);
+    for (const m of matches) validImages.add(m[0]);
+  } catch { /* list target not always available — fall back to directory scan */ }
+
+  // Find the best available system image that avdmanager accepts
+  let sysImage = null;
+  const candidates = findBestSystemImage(sdkRoot);
+  if (candidates) {
+    // findBestSystemImage returns the top pick — check if it's in validImages
+    if (validImages.size === 0 || validImages.has(candidates)) {
+      sysImage = candidates;
+    } else {
+      // Top pick rejected — find first candidate avdmanager accepts
+      // Re-scan all installed images and filter against validImages
+      const allCandidates = findAllSystemImages(sdkRoot);
+      sysImage = allCandidates.find(img => validImages.has(img)) || allCandidates[0] || null;
+    }
+  }
+
+  if (!sysImage) {
+    // No image installed yet — install one now
+    const { sdkman } = getToolPaths(sdkRoot);
+    const targetImage = getTargetSystemImage();
+    process.stderr.write(`[dev-emulator] No system image found — installing ${targetImage}...\n`);
+    execSync(`yes | "${sdkman}" --sdk_root="${sdkRoot}" "${targetImage}"`, { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    sysImage = targetImage;
+  }
+
+  process.stderr.write(`[dev-emulator] Creating AVD ${AVD_NAME} (${sysImage})...\n`);
+  // Try device profiles in order — older avdmanager versions don't know pixel_7a
+  const deviceFallbacks = [AVD_DEVICE, 'pixel_6', 'pixel_4', 'medium_phone', 'pixel'];
+  let created = false;
+  for (const dev of deviceFallbacks) {
+    try {
+      execSync(
+        `echo no | "${avdman}" create avd -n "${AVD_NAME}" -k "${sysImage}" -d "${dev}" --force`,
+        { env, stdio: ['pipe', 'pipe', 'pipe'] }
+      );
+      created = true;
+      break;
+    } catch { /* try next device */ }
+  }
+  if (!created) {
+    // Last resort: create without --device flag (avdmanager picks a default)
+    execSync(
+      `echo no | "${avdman}" create avd -n "${AVD_NAME}" -k "${sysImage}" --force`,
+      { env, stdio: ['pipe', 'pipe', 'pipe'] }
+    );
+  }
   process.stderr.write('[dev-emulator] AVD created.\n');
 }
 
@@ -477,15 +637,13 @@ const device = {
   async get(name = 'default') {
     if (_devices[name]) return _devices[name];
 
-    // ── Fast path: ADB already knows about a device ──────────────────────────
-    // Check for a running device BEFORE touching the SDK or AVD manager.
-    // This lets dev-emulator work against any already-connected device or
-    // emulator even when cmdline-tools / avdmanager are not installed.
-    // Wrapped in try/catch: if adb is missing entirely, fall through to SDK install.
+    // ── Fast path: ADB already knows about a live device ─────────────────────
+    // Check BEFORE touching the SDK or AVD manager.
+    // Works even when cmdline-tools / avdmanager are missing.
     try {
       const quickAdb = (() => {
         const r = getSdkRoot();
-        return r ? getToolPaths(r).adb : 'adb'; // fall back to system adb if sdk missing
+        return r ? getToolPaths(r).adb : 'adb';
       })();
       const serial = connectedDevice(quickAdb);
       if (serial) {
@@ -494,15 +652,21 @@ const device = {
         _devices[name] = d;
         return d;
       }
-    } catch { /* adb not available yet — fall through to SDK install */ }
+    } catch { /* adb not available — fall through to SDK install */ }
 
-    // ── Slow path: no device connected — need SDK + AVD + emulator boot ──────
+    // ── Slow path: no device connected ───────────────────────────────────────
+    // Run preflight first so users get clear errors (missing unzip, Java, etc.)
+    // before we attempt any download.
+    runPreflight();
+
     let sdkRoot = getSdkRoot();
     if (!sdkRoot) sdkRoot = await installSdk();
 
     const { adb: ADB, emulator: EMU } = getToolPaths(sdkRoot);
     const env = { ...process.env, ANDROID_HOME: sdkRoot, ANDROID_SDK_ROOT: sdkRoot };
 
+    // ensureAvd auto-installs cmdline-tools if missing, picks the best
+    // available system image, and creates the AVD if it doesn't exist yet.
     await ensureAvd(sdkRoot);
 
     process.stderr.write(`[dev-emulator] starting ${AVD_NAME} headlessly...\n`);
@@ -510,15 +674,16 @@ const device = {
       detached: true, stdio: 'ignore', env,
     }).unref();
 
-    // Poll for up to 60s for the emulator to appear in `adb devices`.
-    // After it appears, waitForBoot polls for another 180s until the
-    // Android system reports sys.boot_completed=1.
+    // Phase 1: wait up to 60s for emulator to appear in `adb devices`
+    let serial = null;
     const deadline = Date.now() + 60000;
     while (!serial && Date.now() < deadline) {
       await sleep(2000);
       serial = connectedDevice(ADB);
     }
-    if (!serial) throw new Error('Emulator did not appear in `adb devices` within 60s');
+    if (!serial) throw new Error('Emulator did not appear in `adb devices` within 60s — try running dev-emulator again');
+
+    // Phase 2: wait up to 180s for Android to finish booting
     await waitForBoot(ADB, serial);
 
     const d = new Device(serial, ADB);
