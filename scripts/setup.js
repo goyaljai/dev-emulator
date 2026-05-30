@@ -13,19 +13,30 @@ const skillSrc  = join(__dirname, '..', 'skills', 'android-agent.md');
 const skillDir  = join(HOME, '.claude', 'skills', 'android-agent');
 const skillDest = join(skillDir, 'skill.md');
 
-try {
-  if (existsSync(skillSrc)) {
-    mkdirSync(skillDir, { recursive: true });
-    // Only install if the file doesn't exist or the new version is different
-    const existing = existsSync(skillDest) ? readFileSync(skillDest, 'utf8') : '';
-    const incoming = readFileSync(skillSrc, 'utf8');
-    if (existing !== incoming) {
-      copyFileSync(skillSrc, skillDest);
-      console.log('✅ dev-emulator: installed android-agent skill into ~/.claude/skills/android-agent/skill.md');
+const claudeDir = join(HOME, '.claude');
+const claudeInstalled = existsSync(claudeDir);
+
+if (!claudeInstalled) {
+  console.log('ℹ️  Claude Code is not installed on this machine.');
+  console.log('   To get the android-agent skill, install Claude Code first:');
+  console.log('   https://claude.ai/code\n');
+  console.log('   Then re-run: npm install -g dev-emulator\n');
+} else {
+  try {
+    if (existsSync(skillSrc)) {
+      mkdirSync(skillDir, { recursive: true });
+      const existing = existsSync(skillDest) ? readFileSync(skillDest, 'utf8') : '';
+      const incoming = readFileSync(skillSrc, 'utf8');
+      if (existing !== incoming) {
+        copyFileSync(skillSrc, skillDest);
+        console.log('✅ android-agent skill installed → ~/.claude/skills/android-agent/skill.md\n');
+      } else {
+        console.log('✅ android-agent skill is already up to date.\n');
+      }
     }
+  } catch (e) {
+    // Non-fatal — skill install is best-effort
   }
-} catch (e) {
-  // Non-fatal — skill install is best-effort
 }
 
 console.log('✅ dev-emulator installed.\n');
