@@ -6,6 +6,15 @@
 
 Works on macOS and Linux. Supports Apple Silicon (arm64) and Intel/AMD (x86_64).
 
+[![Node.js](https://img.shields.io/badge/node-18%2B-brightgreen)](https://nodejs.org)
+[![License](https://img.shields.io/badge/license-MIT-yellow)](LICENSE)
+[![Version](https://img.shields.io/npm/v/dev-emulator)](https://www.npmjs.com/package/dev-emulator)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](https://github.com/goyaljai/dev-emulator/pulls)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](https://github.com/goyaljai/dev-emulator)
+[![Android](https://img.shields.io/badge/Android-14%2B-3DDC84)](https://developer.android.com)
+
+**[npm](https://www.npmjs.com/package/dev-emulator) · [Report Bug](https://github.com/goyaljai/dev-emulator/issues) · [Request Feature](https://github.com/goyaljai/dev-emulator/issues)**
+
 ---
 
 ## Installation
