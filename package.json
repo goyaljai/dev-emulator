@@ -1,17 +1,44 @@
 {
   "name": "dev-emulator",
   "version": "1.0.0",
-  "description": "Android emulator automation for Claude agents and developers — like dev-browser but for Android",
+  "description": "Android emulator automation for AI agents and developers. Zero setup — SDK, emulator, and AVD are bootstrapped automatically on first run.",
   "type": "module",
   "bin": {
     "dev-emulator": "./bin/dev-emulator.js"
   },
+  "files": [
+    "bin/",
+    "scripts/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "postinstall": "node scripts/setup.js"
   },
-  "keywords": ["android", "emulator", "adb", "automation", "claude", "agent", "testing", "apk"],
+  "keywords": [
+    "android",
+    "emulator",
+    "adb",
+    "automation",
+    "claude",
+    "agent",
+    "testing",
+    "apk",
+    "pixel",
+    "headless"
+  ],
   "author": "goyaljai",
   "license": "MIT",
-  "engines": { "node": ">=18" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/goyaljai/dev-emulator.git"
+  },
+  "homepage": "https://github.com/goyaljai/dev-emulator#readme",
+  "bugs": {
+    "url": "https://github.com/goyaljai/dev-emulator/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {}
 }
