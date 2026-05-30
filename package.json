@@ -1,0 +1,17 @@
+{
+  "name": "dev-emulator",
+  "version": "1.0.0",
+  "description": "Android emulator automation for Claude agents and developers — like dev-browser but for Android",
+  "type": "module",
+  "bin": {
+    "dev-emulator": "./bin/dev-emulator.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/setup.js"
+  },
+  "keywords": ["android", "emulator", "adb", "automation", "claude", "agent", "testing", "apk"],
+  "author": "goyaljai",
+  "license": "MIT",
+  "engines": { "node": ">=18" },
+  "dependencies": {}
+}
