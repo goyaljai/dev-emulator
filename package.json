@@ -1,6 +1,6 @@
 {
   "name": "dev-emulator",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Android emulator automation for AI agents and developers. Zero setup — SDK, emulator, and AVD are bootstrapped automatically on first run.",
   "type": "module",
   "bin": {
