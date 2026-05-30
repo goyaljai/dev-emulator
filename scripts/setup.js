@@ -33,7 +33,6 @@ function installForCodex() {
   const existing = existsSync(dest) ? readFileSync(dest, 'utf8') : '';
   const incoming = readFileSync(skillSrc, 'utf8');
   if (existing !== incoming) copyFileSync(skillSrc, dest);
-  // Ensure skills = true in ~/.codex/config.toml
   const cfg = join(HOME, '.codex', 'config.toml');
   if (existsSync(cfg)) {
     let content = readFileSync(cfg, 'utf8');
@@ -44,6 +43,17 @@ function installForCodex() {
       writeFileSync(cfg, content, 'utf8');
     }
   }
+  return existing === incoming ? 'uptodate' : 'installed';
+}
+
+function installForGemini() {
+  // Gemini CLI (agy) uses ~/.gemini/config/plugins/<plugin>/skills/<skill>/SKILL.md
+  if (!existsSync(skillSrc)) return false;
+  const dest = join(HOME, '.gemini', 'config', 'plugins', 'android', 'skills', 'android-agent', 'SKILL.md');
+  mkdirSync(dirname(dest), { recursive: true });
+  const existing = existsSync(dest) ? readFileSync(dest, 'utf8') : '';
+  const incoming = readFileSync(skillSrc, 'utf8');
+  if (existing !== incoming) copyFileSync(skillSrc, dest);
   return existing === incoming ? 'uptodate' : 'installed';
 }
 
@@ -77,26 +87,33 @@ function removeCron() {
 // ── Main ──────────────────────────────────────────────────────────────────────
 const claudeFound = isBinaryInstalled('claude');
 const codexFound  = isBinaryInstalled('codex');
-const anyFound    = claudeFound || codexFound;
+const geminiFound = isBinaryInstalled('agy');
+const anyFound    = claudeFound || codexFound || geminiFound;
 
 if (anyFound) {
   removeCron();
   if (claudeFound) {
     const r = installForClaude();
     if (r === 'installed')  console.log('✅ android-agent skill installed → ~/.claude/skills/android-agent/skill.md');
-    if (r === 'uptodate')   console.log('✅ android-agent skill up to date (Claude)');
+    if (r === 'uptodate')   console.log('✅ android-agent skill up to date (Claude Code)');
   }
   if (codexFound) {
     const r = installForCodex();
     if (r === 'installed')  console.log('✅ android-agent skill installed → ~/.codex/skills/android-agent/SKILL.md');
-    if (r === 'uptodate')   console.log('✅ android-agent skill up to date (Codex)');
+    if (r === 'uptodate')   console.log('✅ android-agent skill up to date (Codex CLI)');
+  }
+  if (geminiFound) {
+    const r = installForGemini();
+    if (r === 'installed')  console.log('✅ android-agent skill installed → ~/.gemini/config/plugins/android/skills/android-agent/SKILL.md');
+    if (r === 'uptodate')   console.log('✅ android-agent skill up to date (Gemini CLI)');
   }
   console.log('');
 } else {
-  console.log('ℹ️  No AI coding tool detected (Claude Code or Codex CLI).');
+  console.log('ℹ️  No AI coding tool detected (Claude Code, Codex CLI, or Gemini CLI).');
   console.log('   Install one to get the android-agent skill automatically:');
   console.log('   Claude Code → https://claude.ai/code');
   console.log('   Codex CLI   → https://github.com/openai/codex');
+  console.log('   Gemini CLI  → https://github.com/google-gemini/gemini-cli');
   console.log('   The skill will be installed the next time dev-emulator runs.\n');
   if (!hasCron()) {
     addCron();

@@ -42,13 +42,23 @@ function installForCodex() {
   }
 }
 
+function installForGemini() {
+  if (!existsSync(skillSrc)) return;
+  const dest = join(HOME, '.gemini', 'config', 'plugins', 'android', 'skills', 'android-agent', 'SKILL.md');
+  mkdirSync(dirname(dest), { recursive: true });
+  const existing = existsSync(dest) ? readFileSync(dest, 'utf8') : '';
+  if (existing !== readFileSync(skillSrc, 'utf8')) copyFileSync(skillSrc, dest);
+}
+
 const claudeFound = isBinaryInstalled('claude');
 const codexFound  = isBinaryInstalled('codex');
+const geminiFound = isBinaryInstalled('agy');
 
-if (!claudeFound && !codexFound) process.exit(0); // still nothing, check again tomorrow
+if (!claudeFound && !codexFound && !geminiFound) process.exit(0); // still nothing, check again tomorrow
 
 try { if (claudeFound) installForClaude(); } catch { /* non-fatal */ }
-try { if (codexFound)  installForCodex(); } catch { /* non-fatal */ }
+try { if (codexFound)  installForCodex();  } catch { /* non-fatal */ }
+try { if (geminiFound) installForGemini(); } catch { /* non-fatal */ }
 
 // Remove ourselves from crontab
 try {

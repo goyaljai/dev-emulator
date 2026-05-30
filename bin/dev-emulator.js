@@ -51,7 +51,6 @@ mkdirSync(TMP, { recursive: true });
     try {
       execFileSync('which', ['codex'], { stdio: 'pipe' });
       sync(join(HOME, '.codex', 'skills', 'android-agent', 'SKILL.md'));
-      // ensure skills = true in config.toml
       const cfg = join(HOME, '.codex', 'config.toml');
       if (existsSync(cfg)) {
         let c = readFileSync(cfg, 'utf8');
@@ -60,6 +59,12 @@ mkdirSync(TMP, { recursive: true });
           writeFileSync(cfg, c, 'utf8');
         }
       }
+    } catch { /* not installed */ }
+
+    // Gemini CLI (agy)
+    try {
+      execFileSync('which', ['agy'], { stdio: 'pipe' });
+      sync(join(HOME, '.gemini', 'config', 'plugins', 'android', 'skills', 'android-agent', 'SKILL.md'));
     } catch { /* not installed */ }
   } catch { /* non-fatal */ }
 })();
