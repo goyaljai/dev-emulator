@@ -16,15 +16,37 @@
  */
 
 import { execFileSync, execSync, spawn } from 'child_process';
-import { existsSync, mkdirSync, writeFileSync, chmodSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, chmodSync } from 'fs';
 import { homedir, tmpdir, platform, arch } from 'os';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import https from 'https';
 import { createWriteStream } from 'fs';
 
-const HOME = homedir();
-const TMP  = join(tmpdir(), 'dev-emulator');
+const HOME     = homedir();
+const TMP      = join(tmpdir(), 'dev-emulator');
+const __dirname = dirname(fileURLToPath(import.meta.url));
 mkdirSync(TMP, { recursive: true });
+
+// ── Skill auto-install ────────────────────────────────────────────────────────
+// Runs on every execution so the skill is present even if:
+//   - dev-emulator was installed before Claude Code
+//   - Claude Code was reinstalled/updated, wiping ~/.claude/
+(function ensureSkill() {
+  try {
+    const claudeDir  = join(HOME, '.claude');
+    const skillSrc   = join(__dirname, '..', 'skills', 'android-agent.md');
+    const skillDir   = join(claudeDir, 'skills', 'android-agent');
+    const skillDest  = join(skillDir, 'skill.md');
+    if (!existsSync(claudeDir) || !existsSync(skillSrc)) return;
+    const incoming = readFileSync(skillSrc, 'utf8');
+    const existing = existsSync(skillDest) ? readFileSync(skillDest, 'utf8') : '';
+    if (incoming !== existing) {
+      mkdirSync(skillDir, { recursive: true });
+      copyFileSync(skillSrc, skillDest);
+    }
+  } catch { /* non-fatal */ }
+})();
 
 // ── SDK auto-install ──────────────────────────────────────────────────────────
 
