@@ -471,13 +471,8 @@ class Device {
     return { typed: text };
   }
 
-  /**
-   * Pull down the notification shade.
-   * Uses size() to calculate the correct swipe distance for any screen height.
-   */
   async openNotifications() {
-    const { w, h } = await this.size();
-    await this.swipe(Math.floor(w / 2), 50, Math.floor(w / 2), Math.floor(h * 0.65), 400);
+    adb(this._adb, '-s', this._s, 'shell', 'cmd', 'statusbar', 'expand-notifications');
     return { shade: 'open' };
   }
 
