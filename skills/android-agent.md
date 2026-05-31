@@ -75,7 +75,7 @@ d.isCrashed(pkg)                         // { crashed, error? } — checks Andro
 d.notifications()                        // raw dumpsys notification output
 d.isInstalled(pkg)                       // true/false
 d.home() | d.back() | d.wake()          // nav keys
-d.openNotifications()                    // pull shade (uses size() for correct swipe distance)
+d.openNotifications()                    // pull shade (uses cmd statusbar expand-notifications)
 d.sleep(ms)                              // wait
 ```
 
@@ -117,9 +117,9 @@ adb shell input tap 540 1920
 # Swipe
 adb shell input swipe X1 Y1 X2 Y2 DURATION_MS
 
-# Pull down notification shade — swipe from near top (y=50) to far bottom (y=1500+)
-# Short swipes (y=0 to y=800) DO NOT reliably open the shade on 2400px screens
-adb shell input swipe 540 50 540 1500 400
+# Pull down notification shade 
+# (You should use `d.openNotifications()` or `adb shell cmd statusbar expand-notifications` instead of manual swipes)
+adb shell cmd statusbar expand-notifications
 
 # Keys
 adb shell input keyevent KEYCODE_BACK
@@ -147,7 +147,8 @@ adb shell screencap -p /sdcard/shade.png && adb pull /sdcard/shade.png /tmp/shad
 ## Common Gotchas
 
 - **Tap coordinates are wrong**: Images in Claude are often scaled down 2-4x. The image metadata says "Multiply coordinates by X.XX" — always apply that multiplier. Use `adb shell wm size` to confirm device resolution.
-- **Notification shade doesn't open**: `openNotifications()` uses `size()` internally and calculates the correct swipe. Raw `swipe 540 0 540 800` is too short on 2400px screens.
+- **Notification shade doesn't open**: `openNotifications()` now uses `adb shell cmd statusbar expand-notifications` which is 100% reliable on all modern Android versions (bypassing the need for screen-specific swipe math).
+- **Android 13+ Runtime Permissions block UI**: A fresh install (or `adb uninstall` followed by install) clears permissions. On launch, the system will pop up the `POST_NOTIFICATIONS` dialog, which blocks UIAutomator from finding app elements like "Play Now". Either grant it via ADB first (`adb shell pm grant com.pkg android.permission.POST_NOTIFICATIONS`) or handle it in your script (`d.findAndTap("Allow")`).
 - **WebView taps miss**: Content starts below the status bar (~100px on 2400px screen). Adjust Y coordinates accordingly.
 - **WebView loads slowly**: Always sleep 6-8s after launching a WebView app. SPA frameworks (React/Next.js) need extra time to hydrate.
 - **`getUI()` / `findAndTap()` / `waitForElement()` don't work inside WebViews**: Android UIAutomator cannot read DOM content inside a WebView — it only sees the WebView container, not its HTML content. These methods work on native apps only. For WebView apps, use `screenshot()` + visual inspection to determine coordinates, then `tap(x, y)` directly.
