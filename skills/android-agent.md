@@ -56,7 +56,8 @@ If an emulator or device is already running when `device.get()` is called, dev-e
 ### Full dev-emulator API
 
 ```js
-d.install(apkPath)                       // install APK
+d.install(apkPath)                       // install APK (auto-grants all runtime permissions via -g)
+d.grant(pkg, permission)                 // manually grant runtime permission via adb pm grant
 d.launch(pkg, activity)                  // start activity
 d.stop(pkg)                              // force-stop app
 d.tap(x, y)                              // tap at device pixels
@@ -75,6 +76,7 @@ d.isCrashed(pkg)                         // { crashed, error? } — checks Andro
 d.notifications()                        // raw dumpsys notification output
 d.isInstalled(pkg)                       // true/false
 d.home() | d.back() | d.wake()          // nav keys
+d.mediaNext() | d.mediaPrevious() | d.mediaPlayPause() // media session keys
 d.openNotifications()                    // pull shade (uses cmd statusbar expand-notifications)
 d.sleep(ms)                              // wait
 ```
@@ -148,7 +150,7 @@ adb shell screencap -p /sdcard/shade.png && adb pull /sdcard/shade.png /tmp/shad
 
 - **Tap coordinates are wrong**: Images in Claude are often scaled down 2-4x. The image metadata says "Multiply coordinates by X.XX" — always apply that multiplier. Use `adb shell wm size` to confirm device resolution.
 - **Notification shade doesn't open**: `openNotifications()` now uses `adb shell cmd statusbar expand-notifications` which is 100% reliable on all modern Android versions (bypassing the need for screen-specific swipe math).
-- **Android 13+ Runtime Permissions block UI**: A fresh install (or `adb uninstall` followed by install) clears permissions. On launch, the system will pop up the `POST_NOTIFICATIONS` dialog, which blocks UIAutomator from finding app elements like "Play Now". Either grant it via ADB first (`adb shell pm grant com.pkg android.permission.POST_NOTIFICATIONS`) or handle it in your script (`d.findAndTap("Allow")`).
+- **Android 13+ Runtime Permissions block UI**: The system popup `POST_NOTIFICATIONS` dialog blocks UIAutomator. `d.install()` automatically uses the `-g` flag to auto-grant all permissions on install to prevent this. If you are attaching to an already-installed app, use `d.grant(pkg, 'android.permission.POST_NOTIFICATIONS')` or handle it via UI (`d.findAndTap("Allow")`).
 - **WebView taps miss**: Content starts below the status bar (~100px on 2400px screen). Adjust Y coordinates accordingly.
 - **WebView loads slowly**: Always sleep 6-8s after launching a WebView app. SPA frameworks (React/Next.js) need extra time to hydrate.
 - **`getUI()` / `findAndTap()` / `waitForElement()` don't work inside WebViews**: Android UIAutomator cannot read DOM content inside a WebView — it only sees the WebView container, not its HTML content. These methods work on native apps only. For WebView apps, use `screenshot()` + visual inspection to determine coordinates, then `tap(x, y)` directly.

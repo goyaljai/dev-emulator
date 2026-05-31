@@ -428,10 +428,16 @@ class Device {
     this._adb = ADB;
   }
 
-  /** Install an APK. Re-installs if already present. */
+  /** Install an APK. Re-installs if already present. Auto-grants all runtime permissions. */
   async install(apkPath) {
-    adb(this._adb, '-s', this._s, 'install', '-r', apkPath);
+    adb(this._adb, '-s', this._s, 'install', '-g', '-r', apkPath);
     return { installed: apkPath };
+  }
+
+  /** Grant a runtime permission to a package. */
+  async grant(pkg, permission) {
+    adb(this._adb, '-s', this._s, 'shell', 'pm', 'grant', pkg, permission);
+    return { granted: permission };
   }
 
   /** Start an Activity by fully-qualified component name, e.g. launch("com.example", ".MainActivity") */
@@ -479,6 +485,11 @@ class Device {
   async home()  { return this.key('KEYCODE_HOME'); }
   async back()  { return this.key('KEYCODE_BACK'); }
   async wake()  { return this.key('KEYCODE_WAKEUP'); }
+
+  // Media Key Helpers
+  async mediaNext()      { return this.key('KEYCODE_MEDIA_NEXT'); }
+  async mediaPrevious()  { return this.key('KEYCODE_MEDIA_PREVIOUS'); }
+  async mediaPlayPause() { return this.key('KEYCODE_MEDIA_PLAY_PAUSE'); }
 
   /**
    * Capture a screenshot. Returns the local file path where the PNG was saved.
